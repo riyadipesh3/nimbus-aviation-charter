@@ -1,0 +1,490 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/azeret-mono';
+
+@source "./**/*.{tsx,ts}";
+
+/* ============================================================================
+   MATERIAL: LIQUID GLASS
+   ----------------------------------------------------------------------------
+   Apple's Liquid Glass is a native rendering technology. There is no official
+   CSS implementation of it, so everything below is a hand built web
+   approximation of the parts that read on screen.
+
+   The load bearing pieces, all of them driven by CSS custom properties that a
+   rAF throttled pointer handler writes onto the element:
+
+   1. .liquid            the panel shell. Cold translucent body, heavy backdrop
+                         blur plus saturate, and a 1px inset bevel so the
+                         surface has an edge before any highlight arrives.
+
+   2. .liquid::before    THE REFRACTION RING. A conic gradient masked down to a
+                         1.5px band on the panel rim. The conic start angle is
+                         computed from --mx and --my, so the bright arc travels
+                         around the edge as the pointer moves, which is the part
+                         plain glassmorphism never has.
+
+   3. .liquid::after     THE SPECULAR HIGHLIGHT. A radial gradient centred
+                         exactly on the pointer, screen blended over the panel,
+                         with both its alpha and its spread driven by --lift
+                         (pointer proximity). This is the moving highlight.
+
+   4. .liquid-glint      THE INNER HIGHLIGHT LAYER. A separate node inside the
+                         panel whose transform (rotate plus scale) is driven by
+                         the same --mx / --my / --lift, so the sheen slides
+                         across the surface and tilts into the light instead of
+                         sitting still.
+
+   Delete 2, 3 or 4 and the surface stops reading as liquid glass.
+   The defaults (--mx 26, --my 14, --lift 0) are a resting light from above
+   left, so a panel still looks lit before a pointer ever touches it.
+
+   RADIUS SYSTEM: one radius, 26px, locked site wide. Panels, cards, buttons,
+   inputs, media and the header all use it. The single exception is the 999px
+   round availability dot, which is a dot, not a container.
+
+   PALETTE: cold neutral only, near black charcoal through cool grey, with one
+   locked accent, a desaturated cyan at hsl(189 52% 60%). Every grey on the
+   page runs blue over red. No warm neutral appears anywhere.
+   ========================================================================= */
+
+@theme {
+  --color-hull: #090c10;
+  --color-tray: #0d1218;
+  --color-panel: #131b24;
+  --color-steel: #1d2833;
+  --color-slate: #7d8c9a;
+  --color-mist: #98a6b3;
+  --color-chalk: #e9eff3;
+  --color-signal: #63c2ce;
+
+  --font-display: 'Manrope Variable', system-ui, sans-serif;
+  --font-sans: 'Manrope Variable', system-ui, sans-serif;
+  --font-mono: 'Azeret Mono Variable', ui-monospace, 'SF Mono', monospace;
+
+  --radius-liquid: 26px;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-radius: var(--radius-liquid);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-hull);
+    color: var(--color-chalk);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* The field the glass refracts. Fixed, so every panel always has soft light
+     pools moving behind it. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(46% 38% at 13% 3%, rgb(92 116 138 / 0.34) 0%, transparent 60%),
+      radial-gradient(38% 32% at 89% 15%, rgb(70 94 116 / 0.26) 0%, transparent 62%),
+      radial-gradient(52% 44% at 73% 95%, rgb(56 76 95 / 0.3) 0%, transparent 66%),
+      radial-gradient(28% 24% at 5% 72%, rgb(66 126 138 / 0.16) 0%, transparent 62%),
+      var(--color-hull);
+  }
+
+  /* A hairline grid behind the glass. Straight lines are what make the
+     backdrop distortion legible as refraction rather than as blur. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      repeating-linear-gradient(
+        90deg,
+        rgb(216 240 248 / 0.028) 0 1px,
+        transparent 1px 132px
+      ),
+      repeating-linear-gradient(
+        0deg,
+        rgb(216 240 248 / 0.028) 0 1px,
+        transparent 1px 132px
+      );
+  }
+
+  select option {
+    background-color: var(--color-tray);
+    color: var(--color-chalk);
+  }
+
+  ::selection {
+    background-color: var(--color-signal);
+    color: var(--color-hull);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 3px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1.02;
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  .shell {
+    max-width: 1400px;
+    margin-inline: auto;
+    padding-inline: 1.25rem;
+  }
+
+  /* The 26px reset above reaches every div, which makes a 1px top border on a
+     tall row render as a rounded lens rather than a hairline. Rows that carry
+     a rule opt out here. */
+  .rule-top {
+    border-radius: 0;
+  }
+
+  @media (min-width: 768px) {
+    .shell {
+      padding-inline: 2.5rem;
+    }
+  }
+
+  /* ---------------------------------------------------------------------
+     1. THE SHELL
+     --------------------------------------------------------------------- */
+  .liquid {
+    /* Pointer state. Overwritten from JS on every rAF frame while the pointer
+       is inside, and the resting values keep the surface lit. */
+    --mx: 26;
+    --my: 14;
+    --lift: 0;
+
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 1px solid rgb(206 232 240 / 0.16);
+    background:
+      linear-gradient(
+        157deg,
+        rgb(226 244 250 / 0.11) 0%,
+        rgb(176 206 220 / 0.045) 46%,
+        rgb(120 152 170 / 0.075) 100%
+      );
+    backdrop-filter: blur(20px) saturate(155%) brightness(1.03);
+    -webkit-backdrop-filter: blur(20px) saturate(155%) brightness(1.03);
+    box-shadow:
+      inset 0 1px 0 rgb(230 248 252 / 0.3),
+      inset 0 -1px 0 rgb(4 10 16 / 0.55),
+      0 26px 56px -32px rgb(3 8 14 / 0.9);
+  }
+
+  .liquid-bare {
+    border-radius: 0;
+    border-inline: 0;
+  }
+
+  /* The bare panels are full bleed, so their shell slot must not re-round. */
+  .liquid-bare > .liquid-body {
+    border-radius: 0;
+  }
+
+  .liquid-body {
+    position: relative;
+    z-index: 4;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    padding: 1.25rem;
+  }
+
+  @media (min-width: 768px) {
+    .liquid-body {
+      padding: 1.5rem;
+    }
+  }
+
+  .liquid-body.lp-wide {
+    padding: 1.6rem;
+  }
+
+  .liquid-body.lp-none {
+    padding: 0;
+  }
+
+  @media (min-width: 768px) {
+    .liquid-body.lp-wide {
+      padding: 2.25rem;
+    }
+  }
+
+  /* ---------------------------------------------------------------------
+     2. THE REFRACTION RING
+     A conic gradient cut down to a rim band. The start angle is a function of
+     the pointer, so the arc runs round the edge instead of sitting still.
+     --------------------------------------------------------------------- */
+  .liquid::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+    padding: 2px;
+    pointer-events: none;
+    background: conic-gradient(
+      from calc(var(--mx) * 1.6deg + var(--my) * 1.1deg),
+      rgb(232 250 253 / 0.08) 0deg,
+      rgb(244 254 255 / 1) 22deg,
+      rgb(99 194 206 / 0.62) 64deg,
+      rgb(232 250 253 / 0.1) 140deg,
+      rgb(232 250 253 / 0.07) 206deg,
+      rgb(244 254 255 / 0.88) 288deg,
+      rgb(232 250 253 / 0.08) 360deg
+    );
+    -webkit-mask:
+      linear-gradient(rgb(0 0 0 / 1) 0 0) content-box,
+      linear-gradient(rgb(0 0 0 / 1) 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(rgb(0 0 0 / 1) 0 0) content-box,
+      linear-gradient(rgb(0 0 0 / 1) 0 0);
+    mask-composite: exclude;
+    opacity: calc(0.46 + 0.54 * var(--lift));
+    transition: opacity 520ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* ---------------------------------------------------------------------
+     3. THE SPECULAR HIGHLIGHT
+     Positioned on the pointer, screen blended, and it brightens as the pointer
+     closes in. Both the alpha and the spread read from --lift.
+     --------------------------------------------------------------------- */
+  .liquid::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        78% 78% at calc(var(--mx) * 1%) calc(var(--my) * 1%),
+        rgb(255 255 255 / calc(0.11 + 0.32 * var(--lift))) 0%,
+        rgb(198 232 238 / calc(0.06 + 0.16 * var(--lift))) 34%,
+        transparent 64%
+      ),
+      radial-gradient(
+        22% 18% at calc(var(--mx) * 1%) calc(var(--my) * 1%),
+        rgb(255 255 255 / calc(0.1 + 0.44 * var(--lift))) 0%,
+        transparent 72%
+      );
+    mix-blend-mode: screen;
+    opacity: calc(0.52 + 0.48 * var(--lift));
+    transition: opacity 520ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* ---------------------------------------------------------------------
+     4. THE INNER HIGHLIGHT LAYER
+     A wide soft dome that tracks the pointer and tilts into it. The transform
+     is the whole point: it moves and it changes shape with the pointer.
+     --------------------------------------------------------------------- */
+  .liquid-glint {
+    position: absolute;
+    z-index: 2;
+    left: calc(var(--mx) * 1%);
+    top: calc(var(--my) * 1%);
+    width: 168%;
+    aspect-ratio: 1 / 0.74;
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%)
+      rotate(calc((var(--mx) - 50) * -0.24deg))
+      scale(calc(0.54 + 0.6 * var(--lift)));
+    background: radial-gradient(
+      closest-side,
+      rgb(226 250 253 / 0.26) 0%,
+      rgb(120 202 214 / 0.1) 44%,
+      transparent 70%
+    );
+    filter: blur(3px);
+    mix-blend-mode: screen;
+    opacity: calc(0.42 + 0.58 * var(--lift));
+    transition: opacity 520ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* The board notice in the hero panel. Same shell, one step more opaque. */
+  .liquid-solid {
+    background:
+      linear-gradient(
+        157deg,
+        rgb(226 244 250 / 0.15) 0%,
+        rgb(168 198 214 / 0.07) 52%,
+        rgb(112 144 162 / 0.11) 100%
+      );
+    backdrop-filter: blur(32px) saturate(165%) brightness(1.04);
+    -webkit-backdrop-filter: blur(32px) saturate(165%) brightness(1.04);
+  }
+
+  .micro {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.2;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--color-slate);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    white-space: nowrap;
+    padding: 0.8rem 1.4rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    transition:
+      transform 380ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 380ms cubic-bezier(0.32, 0.72, 0, 1),
+      box-shadow 380ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .btn:active {
+    transform: translateY(1px) scale(0.985);
+  }
+
+  .btn-primary {
+    background: var(--color-signal);
+    color: var(--color-hull);
+    border: 1px solid rgb(214 246 250 / 0.55);
+    box-shadow: 0 12px 30px -14px rgb(99 194 206 / 0.7);
+  }
+
+  .btn-primary:hover {
+    background: #7ad0da;
+  }
+
+  .btn-ghost {
+    color: var(--color-chalk);
+    border: 1px solid rgb(206 232 240 / 0.24);
+    background: rgb(226 244 250 / 0.04);
+  }
+
+  .btn-ghost:hover {
+    background: rgb(226 244 250 / 0.09);
+  }
+
+  /* Icon nested inside the button, flush with its right padding. */
+  .btn-icon {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-right: -0.6rem;
+    border-radius: 999px;
+    background: rgb(9 12 16 / 0.16);
+    transition: transform 380ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .btn:hover .btn-icon {
+    transform: translate(2px, -1px);
+  }
+
+  .btn-ghost .btn-icon {
+    background: rgb(226 244 250 / 0.12);
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition:
+      opacity 620ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 620ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .link-underline {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+    text-decoration-color: rgb(206 232 240 / 0.32);
+    transition: text-decoration-color 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .link-underline:hover {
+    text-decoration-color: var(--color-signal);
+  }
+
+  .field {
+    width: 100%;
+    padding: 0.75rem 0.95rem;
+    color: var(--color-chalk);
+    background: rgb(226 244 250 / 0.045);
+    border: 1px solid rgb(206 232 240 / 0.2);
+    font-size: 0.9375rem;
+    transition:
+      border-color 300ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .field::placeholder {
+    color: var(--color-slate);
+    opacity: 0.8;
+  }
+
+  .field:focus {
+    outline: none;
+    border-color: var(--color-signal);
+    background: rgb(226 244 250 / 0.08);
+  }
+}
+
+/* Solid fill wherever the user has asked for less transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  .liquid,
+  .liquid-solid {
+    background: var(--color-panel);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .liquid-glint,
+  .liquid::after {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
